@@ -1,0 +1,66 @@
+name: DB DML — PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'changelogs/dml/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  validate-dml:
+    name: Validate DML Changesets
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run DML PR validation
+        run: node scripts/pipeline/on-dml-pr.js
+        env:
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_ISSUE_TYPE: Task
+          JIRA_AUTH_TYPE: ${{ secrets.JIRA_AUTH_TYPE || 'cloud' }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          DML_JIRA_ISSUE_TYPE: ${{ secrets.DML_JIRA_ISSUE_TYPE || 'Sub-task' }}
+          DML_APPROVAL_REQUIRED: ${{ secrets.DML_APPROVAL_REQUIRED || 'true' }}
+          DML_AUTO_APPROVE_ROW_LIMIT: ${{ secrets.DML_AUTO_APPROVE_ROW_LIMIT || '0' }}
+          DML_ALLOWED_ENVIRONMENTS: ${{ secrets.DML_ALLOWED_ENVIRONMENTS || 'preprod,uat' }}
+          DML_PROD_ENABLED: ${{ secrets.DML_PROD_ENABLED || 'false' }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENVIRONMENTS: ${{ secrets.ENVIRONMENTS }}
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dml-validation-report
+          path: logs/

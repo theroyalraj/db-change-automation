@@ -1,0 +1,87 @@
+name: DB Change — Scheduled Execution
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+    inputs:
+      changeset_path:
+        description: 'Path to the changeset file'
+        required: true
+        type: string
+      target_environment:
+        description: 'Target environment (preprod, uat, prod)'
+        required: true
+        type: choice
+        options:
+          - preprod
+          - uat
+          - prod
+      scheduled_by:
+        description: 'Username who scheduled this'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  execute-scheduled:
+    name: Execute Scheduled Change
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment || 'preprod' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Liquibase
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          mkdir -p /opt/liquibase
+          tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          echo "/opt/liquibase" >> $GITHUB_PATH
+
+      - name: Execute scheduled changeset
+        run: node scripts/pipeline/on-schedule.js
+        env:
+          CHANGESET_PATH: ${{ inputs.changeset_path || '' }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment || '' }}
+          SCHEDULED_BY: ${{ inputs.scheduled_by || 'cron' }}
+          SCHEDULING_ENABLED: 'true'
+          SCHEDULE_TIMEZONE: ${{ secrets.SCHEDULE_TIMEZONE || 'UTC' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENVIRONMENTS: ${{ inputs.target_environment || 'preprod' }}
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          AUTO_ROLLBACK_ON_FAILURE: 'true'
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-execution-log
+          path: logs/

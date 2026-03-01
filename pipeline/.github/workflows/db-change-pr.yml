@@ -1,0 +1,88 @@
+name: DB Change — PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'changelogs/migrations/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  validate:
+    name: Validate DDL Changesets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate environment
+        run: node scripts/utils/env-validator.js
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENVIRONMENTS: ${{ secrets.ENVIRONMENTS }}
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+
+      - name: Run PR validation
+        run: node scripts/pipeline/on-pr-open.js
+        env:
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_ISSUE_TYPE: ${{ secrets.JIRA_ISSUE_TYPE || 'Task' }}
+          JIRA_AUTH_TYPE: ${{ secrets.JIRA_AUTH_TYPE || 'cloud' }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENVIRONMENTS: ${{ secrets.ENVIRONMENTS }}
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          COMPLIANCE_MODE: ${{ secrets.COMPLIANCE_MODE || 'NONE' }}
+          REQUIRE_ROLLBACK_SCRIPT: ${{ secrets.REQUIRE_ROLLBACK_SCRIPT || 'true' }}
+          SCHEDULING_ENABLED: ${{ secrets.SCHEDULING_ENABLED || 'true' }}
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: changeset-validation-report
+          path: logs/
+          retention-days: 30

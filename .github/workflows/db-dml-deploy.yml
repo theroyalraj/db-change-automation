@@ -1,0 +1,99 @@
+name: DB DML — Deploy
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - 'changelogs/dml/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deploy-dml:
+    name: Deploy DML Changes
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    environment: ${{ vars.DML_TARGET_ENV || 'preprod' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Liquibase
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          mkdir -p /opt/liquibase
+          tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          echo "/opt/liquibase" >> $GITHUB_PATH
+
+      - name: Deploy DML changes
+        run: node scripts/pipeline/on-pr-merge.js
+        env:
+          TARGET_ENV: ${{ vars.DML_TARGET_ENV || 'preprod' }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          DML_ALLOWED_ENVIRONMENTS: ${{ secrets.DML_ALLOWED_ENVIRONMENTS || 'preprod,uat' }}
+          DML_PROD_ENABLED: ${{ secrets.DML_PROD_ENABLED || 'false' }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          ENVIRONMENTS: ${{ vars.DML_TARGET_ENV || 'preprod' }}
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          AUTO_ROLLBACK_ON_FAILURE: 'true'
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dml-deploy-log
+          path: logs/
+
+  on-failure:
+    name: Handle DML Failure
+    needs: deploy-dml
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run failure handler
+        run: node scripts/pipeline/on-failure.js
+        env:
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          FAILURE_ERROR: 'DML deployment failed'
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}

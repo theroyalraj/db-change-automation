@@ -1,0 +1,43 @@
+{
+  "policy": "REQUIRE_APPROVAL",
+  "approvalGroups": ["dba-team"],
+  "rules": [
+    {
+      "template": "APPROVAL_FLOW",
+      "condition": {
+        "expression": "request.risk_level >= 'MEDIUM' || request.statement_type == 'DDL'"
+      },
+      "flow": {
+        "steps": [
+          {
+            "type": "ANY",
+            "nodes": [
+              {
+                "type": "GROUP",
+                "groupValue": "PROJECT_OWNER"
+              },
+              {
+                "type": "GROUP",
+                "groupValue": "DBA"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "requireSeparationOfDuties": true,
+  "selfApproval": {
+    "allowed": false,
+    "exceptionForRisk": "LOW"
+  },
+  "timeoutHours": 24,
+  "escalationOnTimeout": "reject",
+  "allowSelfApprovalForRisk": "low",
+  "complianceNotes": {
+    "SOX": "4-eyes principle enforced: minimum 2 approvers for HIGH risk changes",
+    "PCI_DSS": "All DDL changes require DBA approval regardless of risk",
+    "HIPAA": "Changes to tables containing PHI require additional security team approval",
+    "GDPR": "Changes affecting personal data columns trigger DPO notification"
+  }
+}

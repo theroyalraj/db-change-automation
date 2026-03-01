@@ -1,0 +1,226 @@
+name: DB Change — Multi-Environment Deploy
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - 'changelogs/migrations/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+  deployments: write
+
+jobs:
+  check-merge:
+    name: Check if PR was merged
+    runs-on: ubuntu-latest
+    outputs:
+      was_merged: ${{ github.event.pull_request.merged }}
+    steps:
+      - run: echo "PR merged = ${{ github.event.pull_request.merged }}"
+
+  deploy-preprod:
+    name: Deploy to Preprod
+    needs: check-merge
+    if: needs.check-merge.outputs.was_merged == 'true'
+    runs-on: ubuntu-latest
+    environment: preprod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Liquibase
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          mkdir -p /opt/liquibase
+          tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          echo "/opt/liquibase" >> $GITHUB_PATH
+
+      - name: Deploy to preprod
+        run: node scripts/pipeline/on-pr-merge.js
+        env:
+          TARGET_ENV: preprod
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          PREPROD_DB_HOST: ${{ secrets.PREPROD_DB_HOST }}
+          PREPROD_DB_PORT: ${{ secrets.PREPROD_DB_PORT }}
+          PREPROD_DB_NAME: ${{ secrets.PREPROD_DB_NAME }}
+          PREPROD_DB_USERNAME: ${{ secrets.PREPROD_DB_USERNAME }}
+          PREPROD_DB_PASSWORD: ${{ secrets.PREPROD_DB_PASSWORD }}
+          DB_HOST: ${{ secrets.PREPROD_DB_HOST }}
+          DB_PORT: ${{ secrets.PREPROD_DB_PORT }}
+          DB_NAME: ${{ secrets.PREPROD_DB_NAME }}
+          DB_USERNAME: ${{ secrets.PREPROD_DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.PREPROD_DB_PASSWORD }}
+          ENVIRONMENTS: preprod
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          AUTO_ROLLBACK_ON_FAILURE: 'true'
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preprod-deploy-log
+          path: logs/
+
+  deploy-uat:
+    name: Deploy to UAT
+    needs: deploy-preprod
+    if: vars.UAT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Install Liquibase
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          mkdir -p /opt/liquibase
+          tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          echo "/opt/liquibase" >> $GITHUB_PATH
+
+      - name: Deploy to UAT
+        run: node scripts/pipeline/on-pr-merge.js
+        env:
+          TARGET_ENV: uat
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          UAT_DB_HOST: ${{ secrets.UAT_DB_HOST }}
+          UAT_DB_PORT: ${{ secrets.UAT_DB_PORT }}
+          UAT_DB_NAME: ${{ secrets.UAT_DB_NAME }}
+          UAT_DB_USERNAME: ${{ secrets.UAT_DB_USERNAME }}
+          UAT_DB_PASSWORD: ${{ secrets.UAT_DB_PASSWORD }}
+          DB_HOST: ${{ secrets.UAT_DB_HOST }}
+          DB_PORT: ${{ secrets.UAT_DB_PORT }}
+          DB_NAME: ${{ secrets.UAT_DB_NAME }}
+          DB_USERNAME: ${{ secrets.UAT_DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.UAT_DB_PASSWORD }}
+          ENVIRONMENTS: uat
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          AUTO_ROLLBACK_ON_FAILURE: 'true'
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: [deploy-preprod, deploy-uat]
+    if: always() && needs.deploy-preprod.result == 'success' && (needs.deploy-uat.result == 'success' || needs.deploy-uat.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Install Liquibase
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          mkdir -p /opt/liquibase
+          tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          echo "/opt/liquibase" >> $GITHUB_PATH
+
+      - name: Deploy to production
+        run: node scripts/pipeline/on-pr-merge.js
+        env:
+          TARGET_ENV: prod
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          PROD_DB_HOST: ${{ secrets.PROD_DB_HOST }}
+          PROD_DB_PORT: ${{ secrets.PROD_DB_PORT }}
+          PROD_DB_NAME: ${{ secrets.PROD_DB_NAME }}
+          PROD_DB_USERNAME: ${{ secrets.PROD_DB_USERNAME }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          DB_HOST: ${{ secrets.PROD_DB_HOST }}
+          DB_PORT: ${{ secrets.PROD_DB_PORT }}
+          DB_NAME: ${{ secrets.PROD_DB_NAME }}
+          DB_USERNAME: ${{ secrets.PROD_DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          ENVIRONMENTS: prod
+          PROD_REQUIRES_MANUAL_APPROVAL: 'false'
+          BYTEBASE_URL: ${{ secrets.BYTEBASE_URL }}
+          BYTEBASE_SERVICE_ACCOUNT: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT }}
+          BYTEBASE_SERVICE_KEY: ${{ secrets.BYTEBASE_SERVICE_KEY }}
+          LIQUIBASE_CHANGELOG_PATH: changelogs/master.xml
+          AUTO_ROLLBACK_ON_FAILURE: 'true'
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-deploy-log
+          path: logs/
+
+  on-failure:
+    name: Handle Failure
+    needs: [deploy-preprod, deploy-uat, deploy-prod]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run failure handler
+        run: node scripts/pipeline/on-failure.js
+        env:
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          FAILURE_ERROR: 'Deployment failed — check individual job logs'
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+          JIRA_IN_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_IN_REVIEW_TRANSITION_ID }}
+          JIRA_FAILED_TRANSITION_ID: ${{ secrets.JIRA_FAILED_TRANSITION_ID }}
+          NOTIFICATION_CHANNELS: ${{ secrets.NOTIFICATION_CHANNELS || '' }}
