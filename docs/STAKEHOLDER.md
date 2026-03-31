@@ -24,14 +24,14 @@
 
 <!-- This system is a **governance layer, not a centralized approval bottleneck.** -->
 
-| Principle                                               | What it means                                                                                                                                                                  |
-| ---------------------------------------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Governance, not gatekeeping**                         | The system enforces standards (rollback, metadata, compliance) automatically — it doesn't add manual approval steps where they aren't needed                                   |
-| **DDL on prod = DBA review**                            | Structural schema changes (ALTER, DROP, CREATE) go through DBA review and multi-env promotion. This is the high-risk path that needs human eyes.                               |
-| **INSERT / UPDATE = auto-approve where possible** | Data changes (config updates, feature flags, seed data) can be auto-approved below a row threshold. DBAs don't own business logic — the team that owns the service does.       |
-| **SELECT / query review = self-service via Bytebase**   | Read-only queries reviewed by SQL policies, also by DBA if neede.                                                                                                              |
-| **Service teams own their DB**                          | Each service owns its database and its migration pipeline. No global approval queue for every change. The system provides the guardrails, teams drive.                         |
-| **Prod gate only when confident**                       | The manual production approval gate is enabled during rollout. Once teams have confidence (tracked via observability), it can be relaxed to auto-promote for low-risk changes. |
+| Principle                                             | What it means                                                                                                                                                                  |
+| -------------------------------------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Governance, not gatekeeping**                       | The system enforces standards (rollback, metadata, compliance) automatically — it doesn't add manual approval steps where they aren't needed                                   |
+| **DDL on prod = DBA review**                          | Structural schema changes (ALTER, DROP, CREATE) go through DBA review and multi-env promotion. This is the high-risk path that needs human eyes.                               |
+| **INSERT / UPDATE = auto-approve where possible**     | Data changes (config updates, feature flags, seed data) can be auto-approved below a row threshold. DBAs don't own business logic — the team that owns the service does.       |
+| **SELECT / query review = self-service via Bytebase** | Read-only queries reviewed by SQL policies, also by DBA if neede.                                                                                                              |
+| **Service teams own their DB**                        | Each service owns its database and its migration pipeline. No global approval queue for every change. The system provides the guardrails, teams drive.                         |
+| **Prod gate only when confident**                     | The manual production approval gate is enabled during rollout. Once teams have confidence (tracked via observability), it can be relaxed to auto-promote for low-risk changes. |
 
 **Sustainable when:** used as governance + observability layer, scoped to critical/cross-cutting changes, heavily automated.
 
@@ -232,15 +232,13 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ## 9. Observability (planned)
 
-This is a missing piece today. Must be added during pilot:
-
-| Metric | What it tracks | How |
-|--------|---------------|-----|
-| **Migration success/failure rate** | % of changesets that deploy without rollback | Pipeline logs + Jira ticket outcomes |
-| **DB performance impact** | Query latency, lock wait time, slow queries before/after a migration | DB monitoring (existing APM / CloudWatch / Grafana) + post-deploy health check |
-| **Rollback frequency** | How often auto-rollback fires, and for which services/tables | Audit log events (`ROLLBACK` entries) |
-| **Lead time by change type** | Time from MR open → prod deploy, split by DDL vs DML | Jira timestamps + pipeline duration |
-| **Change volume by service** | Which teams/services are pushing the most changes | Changeset metadata (`@author`, file path) |
+| Metric                             | What it tracks                                                       | How                                                                            |
+| ------------------------------------| ----------------------------------------------------------------------| --------------------------------------------------------------------------------|
+| **Migration success/failure rate** | % of changesets that deploy without rollback                         | Pipeline logs + Jira ticket outcomes                                           |
+| **DB performance impact**          | Query latency, lock wait time, slow queries before/after a migration | DB monitoring (existing APM / CloudWatch / Grafana) + post-deploy health check |
+| **Rollback frequency**             | How often auto-rollback fires, and for which services/tables         | Audit log events (`ROLLBACK` entries)                                          |
+| **Lead time by change type**       | Time from MR open → prod deploy, split by DDL vs DML                 | Jira timestamps + pipeline duration                                            |
+| **Change volume by service**       | Which teams/services are pushing the most changes                    | Changeset metadata (`@author`, file path)                                      |
 
 > **Goal:** Use these metrics to build confidence. Once a service shows consistent green (low rollback rate, no performance regressions), relax the manual prod gate for that service's low-risk changes.
 
