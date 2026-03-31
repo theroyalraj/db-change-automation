@@ -20,22 +20,41 @@
 
 ---
 
-## 2. What this solution does 
+## 2. Scope & philosophy
+
+<!-- This system is a **governance layer, not a centralized approval bottleneck.** -->
+
+| Principle                                               | What it means                                                                                                                                                                  |
+| ---------------------------------------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Governance, not gatekeeping**                         | The system enforces standards (rollback, metadata, compliance) automatically — it doesn't add manual approval steps where they aren't needed                                   |
+| **DDL on prod = DBA review**                            | Structural schema changes (ALTER, DROP, CREATE) go through DBA review and multi-env promotion. This is the high-risk path that needs human eyes.                               |
+| **INSERT / UPDATE = auto-approve where possible** | Data changes (config updates, feature flags, seed data) can be auto-approved below a row threshold. DBAs don't own business logic — the team that owns the service does.       |
+| **SELECT / query review = self-service via Bytebase**   | Read-only queries reviewed by SQL policies, also by DBA if neede.                                                                                                              |
+| **Service teams own their DB**                          | Each service owns its database and its migration pipeline. No global approval queue for every change. The system provides the guardrails, teams drive.                         |
+| **Prod gate only when confident**                       | The manual production approval gate is enabled during rollout. Once teams have confidence (tracked via observability), it can be relaxed to auto-promote for low-risk changes. |
+
+**Sustainable when:** used as governance + observability layer, scoped to critical/cross-cutting changes, heavily automated.
+
+**Not sustainable when:** centralized approval for every change, ignores microservice ownership, requires manual DBA sign-off on business-logic data changes.
+
+---
+
+## 3. What this solution does 
 
 A developer writes a database change in a file, submits it for review — and **everything else is automatic**:
 
-1. The change is **validated** (SQL syntax, metadata, compliance rules, rollback block)
-2. A **Jira ticket** is created and linked to the merge request
-3. A **DBA is notified** (WhatsApp + email) for approval
-4. After approval and merge, the change rolls out: **preprod → UAT → production**
-5. If anything fails, it **automatically rolls back**
-6. Every action is **logged for audit**
+1. Developer opens an **MR** with a SQL file
+2. The system **validates** the change and **creates a Jira ticket** — linked back to the MR
+3. **DDL (schema changes):** DBA is notified and reviews. **DML (data changes):** auto-approved below row threshold — DBAs don't own business logic
+4. On merge, the change **deploys through preprod → UAT → production**
+5. If anything fails, it **rolls back automatically**
+6. Every step is **audit-logged** — who, what, when, outcome
 
 
 
 ---
 ![Issue lifecycle](assets/stakeholder/issue-lifecycle.avif)
-## 3. Before vs After
+## 4. Before vs After
 
 |                           | Before (manual)           | After (automated)                     |
 | ---------------------------| ---------------------------| ---------------------------------------|
@@ -50,7 +69,7 @@ A developer writes a database change in a file, submits it for review — and **
 
 ---
 
-## 4. Business metrics & targets
+## 5. Business metrics & targets
 
 | KPI | Current (baseline) | 6-month target | Measurement |
 |-----|-------------------|----------------|-------------|
@@ -67,7 +86,7 @@ A developer writes a database change in a file, submits it for review — and **
 
 
 
-## 5. Cost analysis
+## 6. Cost analysis
 
 ### 5.1 Tooling costs — community (free) tier
 
@@ -116,7 +135,7 @@ Everything we use today is on free / open-source tiers or existing licenses:
 
 ---
 
-## 6. How it fits your current workflow
+## 7. How it fits your current workflow
 
 > **Key point:** The process starts with a **Merge Request in GitLab** — not a Jira ticket. The Jira ticket is created automatically by the pipeline. No one needs to touch Jira to initiate a database change.
 
@@ -196,7 +215,7 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ---
 
-## 7. Compliance & audit readiness
+## 8. Compliance & audit readiness
 
 | Regulation | What the system enforces today | Planned (not yet enforced) | Evidence generated |
 |-----------|-------------------------------|---------------------------|-------------------|
@@ -211,7 +230,23 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ---
 
-## 8. Risk register
+## 9. Observability (planned)
+
+This is a missing piece today. Must be added during pilot:
+
+| Metric | What it tracks | How |
+|--------|---------------|-----|
+| **Migration success/failure rate** | % of changesets that deploy without rollback | Pipeline logs + Jira ticket outcomes |
+| **DB performance impact** | Query latency, lock wait time, slow queries before/after a migration | DB monitoring (existing APM / CloudWatch / Grafana) + post-deploy health check |
+| **Rollback frequency** | How often auto-rollback fires, and for which services/tables | Audit log events (`ROLLBACK` entries) |
+| **Lead time by change type** | Time from MR open → prod deploy, split by DDL vs DML | Jira timestamps + pipeline duration |
+| **Change volume by service** | Which teams/services are pushing the most changes | Changeset metadata (`@author`, file path) |
+
+> **Goal:** Use these metrics to build confidence. Once a service shows consistent green (low rollback rate, no performance regressions), relax the manual prod gate for that service's low-risk changes.
+
+---
+
+## 10. Risk register
 
 | Risk                           | Likelihood | Impact   | Mitigation already in place                                                 |
 | --------------------------------| ------------| ----------| -----------------------------------------------------------------------------|
@@ -223,7 +258,7 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ---
 
-## 9. Implementation timeline
+## 11. Implementation timeline
 
 | Phase                            | Duration  | Deliverable                                          |
 | ----------------------------------| -----------| ------------------------------------------------------|
@@ -238,7 +273,7 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ---
 
-## 10. What we need from leadership
+## 12. What we need from leadership
 
 | # | Decision / action | Owner | By when |
 |---|------------------|-------|---------|
@@ -252,7 +287,7 @@ No changes to the database logic, Jira integration, or notification setup.
 
 ---
 
-## 11. What it looks like — sample change walkthrough
+## 13. What it looks like — sample change walkthrough
 
 Below is a real example from the repo: [PR #1 — Add phone column](https://github.com/theroyalraj/db-change-automation/pull/1).
 
@@ -412,7 +447,7 @@ The bot comment on the MR includes row estimate and backup status, and the Jira 
 
 ---
 
-## 12. UI screenshots — links to capture
+## 14. UI screenshots — links to capture
 
 Visit each link below, take a screenshot, and save to `docs/assets/stakeholder/`:
 
@@ -451,7 +486,7 @@ Visit each link below, take a screenshot, and save to `docs/assets/stakeholder/`
 
 ---
 
-## 13. Screenshots & evidence
+## 15. Screenshots & evidence
 
 | Figure                                                                          | Description                     |
 | ---------------------------------------------------------------------------------| ---------------------------------|
@@ -463,7 +498,7 @@ Visit each link below, take a screenshot, and save to `docs/assets/stakeholder/`
 
 ---
 
-## 14. References
+## 16. References
 
 | Resource | Link |
 |----------|------|
